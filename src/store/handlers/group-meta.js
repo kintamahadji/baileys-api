@@ -1,17 +1,20 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import type { BaileysEventEmitter } from "@whiskeysockets/baileys";
-import type { BaileysEventHandler } from "@/store/types";
-import { transformPrisma } from "@/store/utils";
-import { prisma } from "@/db";
-import { logger } from "@/shared";
-import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
+import { transformPrisma } from "../utils.js";
+import { prisma } from "../../db.js";
+import { logger } from "../../shared.js";
+import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library.js";
 
-export default function groupMetadataHandler(sessionId: string, event: BaileysEventEmitter) {
+/**
+ *
+ * @param {String} sessionId
+ * @param {import('@whiskeysockets/baileys').BaileysEventEmitter} event
+ * @returns
+ */
+export default function groupMetadataHandler(sessionId, event) {
 	const model = prisma.groupMetadata;
 	let listening = false;
 
-	const upsert: BaileysEventHandler<"groups.upsert"> = async (groups) => {
-		const promises: Promise<any>[] = [];
+	const upsert = async (groups) => {
+		const promises = [];
 
 		for (const group of groups) {
 			const data = transformPrisma(group);
@@ -32,32 +35,33 @@ export default function groupMetadataHandler(sessionId: string, event: BaileysEv
 		}
 	};
 
-	const update: BaileysEventHandler<"groups.update"> = async (updates) => {
+	const update = async (updates) => {
 		for (const update of updates) {
 			try {
 				await model.update({
 					select: { pkId: true },
 					data: transformPrisma(update),
-					where: { sessionId_id: { id: update.id!, sessionId } },
+					where: { sessionId_id: { id: update.id, sessionId } },
 				});
 			} catch (e) {
-				if (e instanceof PrismaClientKnownRequestError && e.code === "P2025")
+				if (e instanceof PrismaClientKnownRequestError && e.code === "P2025") {
 					return logger.info({ update }, "Got metadata update for non existent group");
+				}
+
 				logger.error(e, "An error occured during group metadata update");
 			}
 		}
 	};
 
-	const updateParticipant: BaileysEventHandler<"group-participants.update"> = async ({
-		id,
-		action,
-		participants,
-	}) => {
+	const updateParticipant = async ({ id, action, participants }) => {
 		try {
-			const metadata = ((await model.findFirst({
-				select: { participants: true },
-				where: { id, sessionId },
-			})) || []) as { participants: any[] } | null;
+			const metadata =
+				(await model.findFirst({
+					select: { participants: true },
+					where: { id, sessionId },
+				})) ||
+				[] ||
+				null;
 
 			if (!metadata) {
 				return logger.info(
@@ -68,8 +72,11 @@ export default function groupMetadataHandler(sessionId: string, event: BaileysEv
 
 			switch (action) {
 				case "add":
+				case "revoked_membership_requests":
 					metadata.participants.push(
-						participants.map((id) => ({ id, isAdmin: false, isSuperAdmin: false })),
+						participants.map((id) => {
+							return { id, isAdmin: false, isSuperAdmin: false };
+						}),
 					);
 					break;
 				case "demote":
@@ -79,9 +86,13 @@ export default function groupMetadataHandler(sessionId: string, event: BaileysEv
 							participant.isAdmin = action === "promote";
 						}
 					}
+
 					break;
 				case "remove":
-					metadata.participants = metadata.participants.filter((p) => !participants.includes(p.id));
+				case "leave":
+					metadata.participants = metadata.participants.filter((p) => {
+						return !participants.includes(p.id);
+					});
 					break;
 			}
 
@@ -96,7 +107,9 @@ export default function groupMetadataHandler(sessionId: string, event: BaileysEv
 	};
 
 	const listen = () => {
-		if (listening) return;
+		if (listening) {
+			return;
+		}
 
 		event.on("groups.upsert", upsert);
 		event.on("groups.update", update);
@@ -105,7 +118,9 @@ export default function groupMetadataHandler(sessionId: string, event: BaileysEv
 	};
 
 	const unlisten = () => {
-		if (!listening) return;
+		if (!listening) {
+			return;
+		}
 
 		event.off("groups.upsert", upsert);
 		event.off("groups.update", update);

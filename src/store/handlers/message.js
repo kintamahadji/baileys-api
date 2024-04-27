@@ -1,34 +1,42 @@
-import type {
-	BaileysEventEmitter,
-	MessageUserReceipt,
-	proto,
-	WAMessageKey,
-} from "@whiskeysockets/baileys";
 import { jidNormalizedUser, toNumber } from "@whiskeysockets/baileys";
-import type { BaileysEventHandler, MakeTransformedPrisma } from "@/store/types";
-import { transformPrisma } from "@/store/utils";
-import { prisma } from "@/db";
-import { logger } from "@/shared";
-import type { Message } from "@prisma/client";
+import { transformPrisma } from "../utils.js";
+import { prisma } from "../../db.js";
+import { logger } from "../../shared.js";
 
-const getKeyAuthor = (key: WAMessageKey | undefined | null) =>
-	(key?.fromMe ? "me" : key?.participant || key?.remoteJid) || "";
+/**
+ *
+ * @param {import("@whiskeysockets/baileys").WAMessageKey | undefined | null} key
+ * @returns
+ */
+const getKeyAuthor = (key) => {
+	return (key?.fromMe ? "me" : key?.participant || key?.remoteJid) || "";
+};
 
-export default function messageHandler(sessionId: string, event: BaileysEventEmitter) {
+/**
+ *
+ * @param {String} sessionId
+ * @param {import("@whiskeysockets/baileys").BaileysEventEmitter} event
+ * @returns
+ */
+export default function messageHandler(sessionId, event) {
 	let listening = false;
 
-	const set: BaileysEventHandler<"messaging-history.set"> = async ({ messages, isLatest }) => {
+	const set = async ({ messages, isLatest }) => {
 		try {
 			await prisma.$transaction(async (tx) => {
-				if (isLatest) await tx.message.deleteMany({ where: { sessionId } });
+				if (isLatest) {
+					await tx.message.deleteMany({ where: { sessionId } });
+				}
 
 				await tx.message.createMany({
-					data: messages.map((message) => ({
-						...transformPrisma(message) as MakeTransformedPrisma<Message>,
-						remoteJid: message.key.remoteJid!,
-						id: message.key.id!,
-						sessionId
-					})),
+					data: messages.map((message) => {
+						return {
+							...transformPrisma(message),
+							remoteJid: message.key.remoteJid,
+							id: message.key.id,
+							sessionId,
+						};
+					}),
 				});
 			});
 			logger.info({ messages: messages.length }, "Synced messages");
@@ -37,24 +45,24 @@ export default function messageHandler(sessionId: string, event: BaileysEventEmi
 		}
 	};
 
-	const upsert: BaileysEventHandler<"messages.upsert"> = async ({ messages, type }) => {
+	const upsert = async ({ messages, type }) => {
 		switch (type) {
 			case "append":
 			case "notify":
 				for (const message of messages) {
 					try {
-						const jid = jidNormalizedUser(message.key.remoteJid!);
-						const data = transformPrisma(message) as MakeTransformedPrisma<Message>;
+						const jid = jidNormalizedUser(message.key.remoteJid);
+						const data = transformPrisma(message);
 						await prisma.message.upsert({
 							select: { pkId: true },
 							create: {
 								...data,
 								remoteJid: jid,
-								id: message.key.id!,
-								sessionId
+								id: message.key.id,
+								sessionId,
 							},
 							update: { ...data },
-							where: { sessionId_remoteJid_id: { remoteJid: jid, id: message.key.id!, sessionId } }
+							where: { sessionId_remoteJid_id: { remoteJid: jid, id: message.key.id, sessionId } },
 						});
 
 						const chatExists = (await prisma.chat.count({ where: { id: jid, sessionId } })) > 0;
@@ -71,28 +79,29 @@ export default function messageHandler(sessionId: string, event: BaileysEventEmi
 						logger.error(e, "An error occured during message upsert");
 					}
 				}
+
 				break;
 		}
 	};
 
-	const update: BaileysEventHandler<"messages.update"> = async (updates) => {
+	const update = async (updates) => {
 		for (const { update, key } of updates) {
 			try {
 				await prisma.$transaction(async (tx) => {
 					const prevData = await tx.message.findFirst({
-						where: { id: key.id!, remoteJid: key.remoteJid!, sessionId },
+						where: { id: key.id, remoteJid: key.remoteJid, sessionId },
 					});
 					if (!prevData) {
 						return logger.info({ update }, "Got update for non existent message");
 					}
 
-					const data = { ...prevData, ...update } as proto.IWebMessageInfo;
+					const data = { ...prevData, ...update };
 					await tx.message.delete({
 						select: { pkId: true },
 						where: {
 							sessionId_remoteJid_id: {
-								id: key.id!,
-								remoteJid: key.remoteJid!,
+								id: key.id,
+								remoteJid: key.remoteJid,
 								sessionId,
 							},
 						},
@@ -100,9 +109,9 @@ export default function messageHandler(sessionId: string, event: BaileysEventEmi
 					await tx.message.create({
 						select: { pkId: true },
 						data: {
-							...transformPrisma(data) as MakeTransformedPrisma<Message>,
-							id: data.key.id!,
-							remoteJid: data.key.remoteJid!,
+							...transformPrisma(data),
+							id: data.key.id,
+							remoteJid: data.key.remoteJid,
 							sessionId,
 						},
 					});
@@ -113,48 +122,63 @@ export default function messageHandler(sessionId: string, event: BaileysEventEmi
 		}
 	};
 
-	const del: BaileysEventHandler<"messages.delete"> = async (item) => {
+	const del = async (item) => {
 		try {
 			if ("all" in item) {
 				await prisma.message.deleteMany({ where: { remoteJid: item.jid, sessionId } });
 				return;
 			}
 
-			const jid = item.keys[0].remoteJid!;
+			const jid = item.keys[0].remoteJid;
 			await prisma.message.deleteMany({
-				where: { id: { in: item.keys.map((k) => k.id!) }, remoteJid: jid, sessionId },
+				where: {
+					id: {
+						in: item.keys.map((k) => {
+							return k.id;
+						}),
+					},
+					remoteJid: jid,
+					sessionId,
+				},
 			});
 		} catch (e) {
 			logger.error(e, "An error occured during message delete");
 		}
 	};
 
-	const updateReceipt: BaileysEventHandler<"message-receipt.update"> = async (updates) => {
+	const updateReceipt = async (updates) => {
 		for (const { key, receipt } of updates) {
 			try {
 				await prisma.$transaction(async (tx) => {
 					const message = await tx.message.findFirst({
 						select: { userReceipt: true },
-						where: { id: key.id!, remoteJid: key.remoteJid!, sessionId },
+						where: { id: key.id, remoteJid: key.remoteJid, sessionId },
 					});
 					if (!message) {
 						return logger.debug({ update }, "Got receipt update for non existent message");
 					}
 
-					let userReceipt = (message.userReceipt || []) as unknown as MessageUserReceipt[];
-					const recepient = userReceipt.find((m) => m.userJid === receipt.userJid);
+					let userReceipt = message.userReceipt || [];
+					const recepient = userReceipt.find((m) => {
+						return m.userJid === receipt.userJid;
+					});
 
 					if (recepient) {
-						userReceipt = [...userReceipt.filter((m) => m.userJid !== receipt.userJid), receipt];
+						userReceipt = [
+							...userReceipt.filter((m) => {
+								return m.userJid !== receipt.userJid;
+							}),
+							receipt,
+						];
 					} else {
 						userReceipt.push(receipt);
 					}
 
 					await tx.message.update({
 						select: { pkId: true },
-						data: transformPrisma({ userReceipt: userReceipt }),
+						data: transformPrisma({ userReceipt }),
 						where: {
-							sessionId_remoteJid_id: { id: key.id!, remoteJid: key.remoteJid!, sessionId },
+							sessionId_remoteJid_id: { id: key.id, remoteJid: key.remoteJid, sessionId },
 						},
 					});
 				});
@@ -164,29 +188,32 @@ export default function messageHandler(sessionId: string, event: BaileysEventEmi
 		}
 	};
 
-	const updateReaction: BaileysEventHandler<"messages.reaction"> = async (reactions) => {
+	const updateReaction = async (reactions) => {
 		for (const { key, reaction } of reactions) {
 			try {
 				await prisma.$transaction(async (tx) => {
 					const message = await tx.message.findFirst({
 						select: { reactions: true },
-						where: { id: key.id!, remoteJid: key.remoteJid!, sessionId },
+						where: { id: key.id, remoteJid: key.remoteJid, sessionId },
 					});
 					if (!message) {
 						return logger.debug({ update }, "Got reaction update for non existent message");
 					}
 
 					const authorID = getKeyAuthor(reaction.key);
-					const reactions = ((message.reactions || []) as proto.IReaction[]).filter(
-						(r) => getKeyAuthor(r.key) !== authorID,
-					);
+					const reactions = (message.reactions || []).filter((r) => {
+						return getKeyAuthor(r.key) !== authorID;
+					});
 
-					if (reaction.text) reactions.push(reaction);
+					if (reaction.text) {
+						reactions.push(reaction);
+					}
+
 					await tx.message.update({
 						select: { pkId: true },
-						data: transformPrisma({ reactions: reactions }),
+						data: transformPrisma({ reactions }),
 						where: {
-							sessionId_remoteJid_id: { id: key.id!, remoteJid: key.remoteJid!, sessionId },
+							sessionId_remoteJid_id: { id: key.id, remoteJid: key.remoteJid, sessionId },
 						},
 					});
 				});
@@ -197,7 +224,9 @@ export default function messageHandler(sessionId: string, event: BaileysEventEmi
 	};
 
 	const listen = () => {
-		if (listening) return;
+		if (listening) {
+			return;
+		}
 
 		event.on("messaging-history.set", set);
 		event.on("messages.upsert", upsert);
@@ -209,7 +238,9 @@ export default function messageHandler(sessionId: string, event: BaileysEventEmi
 	};
 
 	const unlisten = () => {
-		if (!listening) return;
+		if (!listening) {
+			return;
+		}
 
 		event.off("messaging-history.set", set);
 		event.off("messages.upsert", upsert);

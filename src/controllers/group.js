@@ -1,10 +1,14 @@
-import type { RequestHandler } from "express";
-import { logger } from "@/shared";
-import { getSession } from "@/whatsapp";
-import { makePhotoURLHandler } from "./misc";
-import { prisma } from "@/db";
+import { logger } from "../shared.js";
+import { getSession } from "../whatsapp.js";
+import { makePhotoURLHandler } from "./misc.js";
+import { prisma } from "../db.js";
 
-export const list: RequestHandler = async (req, res) => {
+/**
+ *
+ * @param {import("express").Request} req
+ * @param {import("express").Response} res
+ */
+export const list = async (req, res) => {
 	try {
 		const { sessionId } = req.params;
 		const { cursor = undefined, limit = 25 } = req.query;
@@ -29,10 +33,15 @@ export const list: RequestHandler = async (req, res) => {
 	}
 };
 
-export const find: RequestHandler = async (req, res) => {
+/**
+ *
+ * @param {import("express").Request} req
+ * @param {import("express").Response} res
+ */
+export const find = async (req, res) => {
 	try {
 		const { sessionId, jid } = req.params;
-		const session = getSession(sessionId)!;
+		const session = getSession(sessionId);
 		const data = await session.groupMetadata(jid);
 		res.status(200).json(data);
 	} catch (e) {

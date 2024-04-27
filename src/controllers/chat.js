@@ -1,10 +1,13 @@
-import { serializePrisma } from "@/store";
-import type { RequestHandler } from "express";
-import { logger } from "@/shared";
-import { prisma } from "@/db";
-import type { Chat, Message } from "@prisma/client";
+import { serializePrisma } from "../store/index.js";
+import { logger } from "../shared.js";
+import { prisma } from "../db.js";
 
-export const list: RequestHandler = async (req, res) => {
+/**
+ *
+ * @param {import("express").Request} req
+ * @param {import("express").Response} res
+ */
+export const list = async (req, res) => {
 	try {
 		const { sessionId } = req.params;
 		const { cursor = undefined, limit = 25 } = req.query;
@@ -15,7 +18,9 @@ export const list: RequestHandler = async (req, res) => {
 				skip: cursor ? 1 : 0,
 				where: { sessionId },
 			})
-		).map((c: Chat) => serializePrisma(c));
+		).map((c) => {
+			return serializePrisma(c);
+		});
 
 		res.status(200).json({
 			data: chats,
@@ -29,7 +34,12 @@ export const list: RequestHandler = async (req, res) => {
 	}
 };
 
-export const find: RequestHandler = async (req, res) => {
+/**
+ *
+ * @param {import("express").Request} req
+ * @param {import("express").Response} res
+ */
+export const find = async (req, res) => {
 	try {
 		const { sessionId, jid } = req.params;
 		const { cursor = undefined, limit = 25 } = req.query;
@@ -41,7 +51,9 @@ export const find: RequestHandler = async (req, res) => {
 				where: { sessionId, remoteJid: jid },
 				orderBy: { messageTimestamp: "desc" },
 			})
-		).map((m: Message) => serializePrisma(m));
+		).map((m) => {
+			return serializePrisma(m);
+		});
 
 		res.status(200).json({
 			data: messages,

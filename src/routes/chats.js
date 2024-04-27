@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { query } from "express-validator";
-import { chat } from "@/controllers";
-import requestValidator from "@/middlewares/request-validator";
+import { chat } from "../controllers/index.js";
+import requestValidator from "../middlewares/request-validator.js";
 
 const router = Router({ mergeParams: true });
 router.get(

@@ -1,14 +1,16 @@
-import type { proto, WAGenericMediaMessage, WAMessage } from "@whiskeysockets/baileys";
 import { downloadMediaMessage } from "@whiskeysockets/baileys";
-import { serializePrisma } from "@/store";
-import type { RequestHandler } from "express";
-import { logger } from "@/shared";
-import { delay as delayMs } from "@/utils";
-import { getSession, jidExists } from "@/whatsapp";
-import { prisma } from "@/db";
-import type { Message } from "@prisma/client";
+import { serializePrisma } from "../store/index.js";
+import { logger } from "../shared.js";
+import { delay as delayMs } from "../utils.js";
+import { getSession, jidExists } from "../whatsapp.js";
+import { prisma } from "../db.js";
 
-export const list: RequestHandler = async (req, res) => {
+/**
+ *
+ * @param {import("express").Request} req
+ * @param {import("express").Response} res
+ */
+export const list = async (req, res) => {
 	try {
 		const { sessionId } = req.params;
 		const { cursor = undefined, limit = 25 } = req.query;
@@ -19,7 +21,9 @@ export const list: RequestHandler = async (req, res) => {
 				skip: cursor ? 1 : 0,
 				where: { sessionId },
 			})
-		).map((m: Message) => serializePrisma(m));
+		).map((m) => {
+			return serializePrisma(m);
+		});
 
 		res.status(200).json({
 			data: messages,
@@ -35,13 +39,20 @@ export const list: RequestHandler = async (req, res) => {
 	}
 };
 
-export const send: RequestHandler = async (req, res) => {
+/**
+ *
+ * @param {import("express").Request} req
+ * @param {import("express").Response} res
+ */
+export const send = async (req, res) => {
 	try {
 		const { jid, type = "number", message, options } = req.body;
-		const session = getSession(req.params.sessionId)!;
+		const session = getSession(req.params.sessionId);
 
 		const exists = await jidExists(session, jid, type);
-		if (!exists) return res.status(400).json({ error: "JID does not exists" });
+		if (!exists) {
+			return res.status(400).json({ error: "JID does not exists" });
+		}
 
 		const result = await session.sendMessage(jid, message, options);
 		res.status(200).json(result);
@@ -52,10 +63,15 @@ export const send: RequestHandler = async (req, res) => {
 	}
 };
 
-export const sendBulk: RequestHandler = async (req, res) => {
-	const session = getSession(req.params.sessionId)!;
-	const results: { index: number; result: proto.WebMessageInfo | undefined }[] = [];
-	const errors: { index: number; error: string }[] = [];
+/**
+ *
+ * @param {import("express").Request} req
+ * @param {import("express").Response} res
+ */
+export const sendBulk = async (req, res) => {
+	const session = getSession(req.params.sessionId);
+	const results = [];
+	const errors = [];
 
 	for (const [
 		index,
@@ -68,7 +84,10 @@ export const sendBulk: RequestHandler = async (req, res) => {
 				continue;
 			}
 
-			if (index > 0) await delayMs(delay);
+			if (index > 0) {
+				await delayMs(delay);
+			}
+
 			const result = await session.sendMessage(jid, message, options);
 			results.push({ index, result });
 		} catch (e) {
@@ -83,12 +102,17 @@ export const sendBulk: RequestHandler = async (req, res) => {
 		.json({ results, errors });
 };
 
-export const download: RequestHandler = async (req, res) => {
+/**
+ *
+ * @param {import("express").Request} req
+ * @param {import("express").Response} res
+ */
+export const download = async (req, res) => {
 	try {
-		const session = getSession(req.params.sessionId)!;
-		const message = req.body as WAMessage;
-		const type = Object.keys(message.message!)[0] as keyof proto.IMessage;
-		const content = message.message![type] as WAGenericMediaMessage;
+		const session = getSession(req.params.sessionId);
+		const message = req.body;
+		const type = Object.keys(message.message)[0];
+		const content = message.message[type];
 		const buffer = await downloadMediaMessage(
 			message,
 			"buffer",
@@ -96,7 +120,7 @@ export const download: RequestHandler = async (req, res) => {
 			{ logger, reuploadRequest: session.updateMediaMessage },
 		);
 
-		res.setHeader("Content-Type", content.mimetype!);
+		res.setHeader("Content-Type", content.mimetype);
 		res.write(buffer);
 		res.end();
 	} catch (e) {

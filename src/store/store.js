@@ -1,13 +1,12 @@
-import type { BaileysEventEmitter } from "@whiskeysockets/baileys";
-import * as handlers from "./handlers";
+import * as handlers from "./handlers/index.js";
 
 export class Store {
-	private readonly chatHandler;
-	private readonly messageHandler;
-	private readonly contactHandler;
-	private readonly groupMetadataHandler;
-
-	constructor(sessionId: string, event: BaileysEventEmitter) {
+	/**
+	 *
+	 * @param {String} sessionId
+	 * @param {import('@whiskeysockets/baileys').BaileysEventEmitter} event
+	 */
+	constructor(sessionId, event) {
 		this.chatHandler = handlers.chatHandler(sessionId, event);
 		this.messageHandler = handlers.messageHandler(sessionId, event);
 		this.contactHandler = handlers.contactHandler(sessionId, event);
@@ -15,14 +14,14 @@ export class Store {
 		this.listen();
 	}
 
-	public listen() {
+	listen() {
 		this.chatHandler.listen();
 		this.messageHandler.listen();
 		this.contactHandler.listen();
 		this.groupMetadataHandler.listen();
 	}
 
-	public unlisten() {
+	unlisten() {
 		this.chatHandler.unlisten();
 		this.messageHandler.unlisten();
 		this.contactHandler.unlisten();

@@ -1,24 +1,28 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import type {
-	AuthenticationCreds,
-	AuthenticationState,
-	SignalDataTypeMap,
-} from "@whiskeysockets/baileys";
-import { proto } from "@whiskeysockets/baileys";
+import baileys from "@whiskeysockets/baileys";
 import { BufferJSON, initAuthCreds } from "@whiskeysockets/baileys";
-import { prisma } from "@/db";
-import { logger } from "@/shared";
-import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
+import { prisma } from "../db.js";
+import { logger } from "../shared.js";
+import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library.js";
 
-const fixId = (id: string) => id.replace(/\//g, "__").replace(/:/g, "-");
+const { proto } = baileys;
+const fixId = (id) => {
+	return id.replace(/\//g, "__").replace(/:/g, "-");
+};
 
-export async function useSession(sessionId: string): Promise<{
-	state: AuthenticationState;
-	saveCreds: () => Promise<void>;
-}> {
+/**
+ *
+ * @param {String} sessionId
+ * @returns {Promise<{state: AuthenticationState; saveCreds: () => Promise<void>; }>}
+ */
+export async function useSession(sessionId) {
 	const model = prisma.session;
 
-	const write = async (data: any, id: string) => {
+	/**
+	 *
+	 * @param {any} data
+	 * @param {String} id
+	 */
+	const write = async (data, id) => {
 		try {
 			data = JSON.stringify(data, BufferJSON.replacer);
 			id = fixId(id);
@@ -33,7 +37,12 @@ export async function useSession(sessionId: string): Promise<{
 		}
 	};
 
-	const read = async (id: string) => {
+	/**
+	 *
+	 * @param {String} id
+	 * @returns
+	 */
+	const read = async (id) => {
 		try {
 			const result = await model.findUnique({
 				select: { data: true },
@@ -52,11 +61,17 @@ export async function useSession(sessionId: string): Promise<{
 			} else {
 				logger.error(e, "An error occured during session read");
 			}
+
 			return null;
 		}
 	};
 
-	const del = async (id: string) => {
+	/**
+	 *
+	 * @param {String} id
+	 * @returns
+	 */
+	const del = async (id) => {
 		try {
 			await model.delete({
 				select: { pkId: true },
@@ -67,32 +82,39 @@ export async function useSession(sessionId: string): Promise<{
 		}
 	};
 
-	const creds: AuthenticationCreds = (await read("creds")) || initAuthCreds();
+	const creds = (await read("creds")) || initAuthCreds();
 
 	return {
 		state: {
 			creds,
 			keys: {
-				get: async <T extends keyof SignalDataTypeMap>(
-					type: T,
-					ids: string[],
-				): Promise<{
-					[id: string]: SignalDataTypeMap[T];
-				}> => {
-					const data: { [key: string]: SignalDataTypeMap[typeof type] } = {};
+				/**
+				 *
+				 * @param {<T extends keyof import('@whiskeysockets/baileys').SignalDataTypeMap>} type
+				 * @param {string[]} ids
+				 * @returns {Promise<{ [id: string]: import('@whiskeysockets/baileys').SignalDataTypeMap>[T]; }>}
+				 */
+				async get(type, ids) {
+					const data = {};
 					await Promise.all(
 						ids.map(async (id) => {
 							let value = await read(`${type}-${id}`);
 							if (type === "app-state-sync-key" && value) {
 								value = proto.Message.AppStateSyncKeyData.fromObject(value);
 							}
+
 							data[id] = value;
 						}),
 					);
 					return data;
 				},
-				set: async (data: any): Promise<void> => {
-					const tasks: Promise<void>[] = [];
+				/**
+				 *
+				 * @param {any} data
+				 * @returns {Promise<void>}
+				 */
+				async set(data) {
+					const tasks = [];
 
 					for (const category in data) {
 						for (const id in data[category]) {
@@ -101,10 +123,13 @@ export async function useSession(sessionId: string): Promise<{
 							tasks.push(value ? write(value, sId) : del(sId));
 						}
 					}
+
 					await Promise.all(tasks);
 				},
 			},
 		},
-		saveCreds: () => write(creds, "creds"),
+		saveCreds() {
+			return write(creds, "creds");
+		},
 	};
 }

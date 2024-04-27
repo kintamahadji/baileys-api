@@ -1,10 +1,14 @@
-import type { RequestHandler } from "express";
-import { logger } from "@/shared";
-import { getSession, jidExists } from "@/whatsapp";
-import { makePhotoURLHandler } from "./misc";
-import { prisma } from "@/db";
+import { logger } from "../shared.js";
+import { getSession, jidExists } from "../whatsapp.js";
+import { makePhotoURLHandler } from "./misc.js";
+import { prisma } from "../db.js";
 
-export const list: RequestHandler = async (req, res) => {
+/**
+ *
+ * @param {import("express").Request} req
+ * @param {import("express").Response} res
+ */
+export const list = async (req, res) => {
 	try {
 		const { sessionId } = req.params;
 		const { cursor = undefined, limit = 25 } = req.query;
@@ -29,9 +33,14 @@ export const list: RequestHandler = async (req, res) => {
 	}
 };
 
-export const listBlocked: RequestHandler = async (req, res) => {
+/**
+ *
+ * @param {import("express").Request} req
+ * @param {import("express").Response} res
+ */
+export const listBlocked = async (req, res) => {
 	try {
-		const session = getSession(req.params.sessionId)!;
+		const session = getSession(req.params.sessionId);
 		const data = await session.fetchBlocklist();
 		res.status(200).json(data);
 	} catch (e) {
@@ -41,13 +50,20 @@ export const listBlocked: RequestHandler = async (req, res) => {
 	}
 };
 
-export const updateBlock: RequestHandler = async (req, res) => {
+/**
+ *
+ * @param {import("express").Request} req
+ * @param {import("express").Response} res
+ */
+export const updateBlock = async (req, res) => {
 	try {
-		const session = getSession(req.params.sessionId)!;
+		const session = getSession(req.params.sessionId);
 		const { jid, action = "block" } = req.body;
 
 		const exists = await jidExists(session, jid);
-		if (!exists) return res.status(400).json({ error: "Jid does not exists" });
+		if (!exists) {
+			return res.status(400).json({ error: "Jid does not exists" });
+		}
 
 		await session.updateBlockStatus(jid, action);
 		res.status(200).json({ message: `Contact ${action}ed` });
@@ -58,10 +74,15 @@ export const updateBlock: RequestHandler = async (req, res) => {
 	}
 };
 
-export const check: RequestHandler = async (req, res) => {
+/**
+ *
+ * @param {import("express").Request} req
+ * @param {import("express").Response} res
+ */
+export const check = async (req, res) => {
 	try {
 		const { sessionId, jid } = req.params;
-		const session = getSession(sessionId)!;
+		const session = getSession(sessionId);
 
 		const exists = await jidExists(session, jid);
 		res.status(200).json({ exists });

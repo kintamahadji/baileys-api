@@ -3,27 +3,25 @@ import makeWASocket, {
 	isJidBroadcast,
 	makeCacheableSignalKeyStore,
 } from "@whiskeysockets/baileys";
-import type { ConnectionState, SocketConfig, WASocket, proto } from "@whiskeysockets/baileys";
-import { Store, useSession } from "./store";
-import { prisma } from "./db";
-import type { WebSocket } from "ws";
-import { logger } from "./shared";
-import type { Boom } from "@hapi/boom";
-import type { Response } from "express";
+import { Store, useSession } from "./store/index.js";
+import { prisma } from "./db.js";
+import { logger } from "./shared.js";
 import { toDataURL } from "qrcode";
-import { delay } from "./utils";
+import { delay } from "./utils.js";
 import dotenv from "dotenv";
 
 dotenv.config();
 
-type Session = WASocket & {
-	destroy: () => Promise<void>;
-	store: Store;
-};
+/**
+ * @typedef {Object} Session
+ * @property {WASocket} socket - Objek WASocket
+ * @property {() => Promise<void>} destroy - Fungsi untuk menghancurkan sesi
+ * @property {Store} store - Objek Store
+ */
 
-const sessions = new Map<string, Session>();
-const retries = new Map<string, number>();
-const SSEQRGenerations = new Map<string, number>();
+const sessions = new Map();
+const retries = new Map();
+const SSEQRGenerations = new Map();
 
 const RECONNECT_INTERVAL = Number(process.env.RECONNECT_INTERVAL || 0);
 const MAX_RECONNECT_RETRIES = Number(process.env.MAX_RECONNECT_RETRIES || 5);
@@ -42,7 +40,12 @@ export async function init() {
 	}
 }
 
-function shouldReconnect(sessionId: string) {
+/**
+ *
+ * @param {String} sessionId
+ * @returns
+ */
+function shouldReconnect(sessionId) {
 	let attempts = retries.get(sessionId) ?? 0;
 
 	if (attempts < MAX_RECONNECT_RETRIES) {
@@ -50,21 +53,28 @@ function shouldReconnect(sessionId: string) {
 		retries.set(sessionId, attempts);
 		return true;
 	}
+
 	return false;
 }
 
-type createSessionOptions = {
-	sessionId: string;
-	res?: Response;
-	SSE?: boolean;
-	readIncomingMessages?: boolean;
-	socketConfig?: SocketConfig;
-};
+/**
+ *
+ * @typedef {Object} createSessionOptions
+ * @property {String} sessionId
+ * @property {import("express").Response} res
+ * @property {Boolean} SSE
+ * @property {Boolean} readIncomingMessages
+ * @property {import("@whiskeysockets/baileys").SocketConfig} socketConfig
+ */
 
-export async function createSession(options: createSessionOptions) {
+/**
+ *
+ * @param {createSessionOptions} options
+ */
+export async function createSession(options) {
 	const { sessionId, res, SSE = false, readIncomingMessages = false, socketConfig } = options;
 	const configID = `${SESSION_CONFIG_ID}-${sessionId}`;
-	let connectionState: Partial<ConnectionState> = { connection: "close" };
+	let connectionState = { connection: "close" };
 
 	const destroy = async (logout = true) => {
 		try {
@@ -85,7 +95,7 @@ export async function createSession(options: createSessionOptions) {
 	};
 
 	const handleConnectionClose = () => {
-		const code = (connectionState.lastDisconnect?.error as Boom)?.output?.statusCode;
+		const code = connectionState.lastDisconnect?.error?.output?.statusCode;
 		const restartRequired = code === DisconnectReason.restartRequired;
 		const doNotReconnect = !shouldReconnect(sessionId);
 
@@ -94,6 +104,7 @@ export async function createSession(options: createSessionOptions) {
 				!SSE && !res.headersSent && res.status(500).json({ error: "Unable to create session" });
 				res.end();
 			}
+
 			destroy(doNotReconnect);
 			return;
 		}
@@ -101,7 +112,13 @@ export async function createSession(options: createSessionOptions) {
 		if (!restartRequired) {
 			logger.info({ attempts: retries.get(sessionId) ?? 1, sessionId }, "Reconnecting...");
 		}
-		setTimeout(() => createSession(options), restartRequired ? 0 : RECONNECT_INTERVAL);
+
+		setTimeout(
+			() => {
+				return createSession(options);
+			},
+			restartRequired ? 0 : RECONNECT_INTERVAL,
+		);
 	};
 
 	const handleNormalConnectionUpdate = async () => {
@@ -116,12 +133,13 @@ export async function createSession(options: createSessionOptions) {
 					res.status(500).json({ error: "Unable to generate QR" });
 				}
 			}
+
 			destroy();
 		}
 	};
 
 	const handleSSEConnectionUpdate = async () => {
-		let qr: string | undefined = undefined;
+		let qr;
 		if (connectionState.qr?.length) {
 			try {
 				qr = await toDataURL(connectionState.qr);
@@ -138,13 +156,16 @@ export async function createSession(options: createSessionOptions) {
 		}
 
 		const data = { ...connectionState, qr };
-		if (qr) SSEQRGenerations.set(sessionId, currentGenerations + 1);
+		if (qr) {
+			SSEQRGenerations.set(sessionId, currentGenerations + 1);
+		}
+
 		res.write(`data: ${JSON.stringify(data)}\n\n`);
 	};
 
 	const handleConnectionUpdate = SSE ? handleSSEConnectionUpdate : handleNormalConnectionUpdate;
 	const { state, saveCreds } = await useSession(sessionId);
-	const socket = makeWASocket({
+	const socket = makeWASocket.default({
 		printQRInTerminal: true,
 		browser: [process.env.NAME_BOT_BROWSER || "Whatsapp Bot", "Chrome", "3.0"],
 		generateHighQualityLinkPreview: true,
@@ -154,12 +175,14 @@ export async function createSession(options: createSessionOptions) {
 			keys: makeCacheableSignalKeyStore(state.keys, logger),
 		},
 		logger,
-		shouldIgnoreJid: (jid) => isJidBroadcast(jid),
-		getMessage: async (key) => {
+		shouldIgnoreJid(jid) {
+			return isJidBroadcast(jid);
+		},
+		async getMessage(key) {
 			const data = await prisma.message.findFirst({
-				where: { remoteJid: key.remoteJid!, id: key.id!, sessionId },
+				where: { remoteJid: key.remoteJid, id: key.id, sessionId },
 			});
-			return (data?.message || undefined) as proto.IMessage | undefined;
+			return data?.message || undefined;
 		},
 	});
 
@@ -175,14 +198,20 @@ export async function createSession(options: createSessionOptions) {
 			retries.delete(sessionId);
 			SSEQRGenerations.delete(sessionId);
 		}
-		if (connection === "close") handleConnectionClose();
+
+		if (connection === "close") {
+			handleConnectionClose();
+		}
+
 		handleConnectionUpdate();
 	});
 
 	if (readIncomingMessages) {
 		socket.ev.on("messages.upsert", async (m) => {
 			const message = m.messages[0];
-			if (message.key.fromMe || m.type !== "notify") return;
+			if (message.key.fromMe || m.type !== "notify") {
+				return;
+			}
 
 			await delay(1000);
 			await socket.readMessages([message.key]);
@@ -206,45 +235,70 @@ export async function createSession(options: createSessionOptions) {
 	});
 }
 
-export function getSessionStatus(session: Session) {
+/**
+ *
+ * @param {Session} session
+ * @returns
+ */
+export function getSessionStatus(session) {
 	const state = ["CONNECTING", "CONNECTED", "DISCONNECTING", "DISCONNECTED"];
-	let status = state[(session.ws as WebSocket).readyState];
+	let status = state[session.ws.readyState];
 	status = session.user ? "AUTHENTICATED" : status;
 	return status;
 }
 
 export function listSessions() {
-	return Array.from(sessions.entries()).map(([id, session]) => ({
-		id,
-		status: getSessionStatus(session),
-	}));
+	return Array.from(sessions.entries()).map(([id, session]) => {
+		return {
+			id,
+			status: getSessionStatus(session),
+		};
+	});
 }
 
-export function getSession(sessionId: string) {
+/**
+ *
+ * @param {String} sessionId
+ * @returns
+ */
+export function getSession(sessionId) {
 	return sessions.get(sessionId);
 }
 
-export async function deleteSession(sessionId: string) {
+/**
+ *
+ * @param {String} sessionId
+ * @returns
+ */
+export async function deleteSession(sessionId) {
 	sessions.get(sessionId)?.destroy();
 }
 
-export function sessionExists(sessionId: string) {
+/**
+ *
+ * @param {String} sessionId
+ * @returns
+ */
+export function sessionExists(sessionId) {
 	return sessions.has(sessionId);
 }
 
-export async function jidExists(
-	session: Session,
-	jid: string,
-	type: "group" | "number" = "number",
-) {
+/**
+ *
+ * @param {Session} session
+ * @param {String} jid
+ * @param {"group" | "number"} type
+ * @returns
+ */
+export async function jidExists(session, jid, type = "number") {
 	try {
 		if (type === "number") {
 			const [result] = await session.onWhatsApp(jid);
-			return !!result?.exists;
+			return Boolean(result?.exists);
 		}
 
 		const groupMeta = await session.groupMetadata(jid);
-		return !!groupMeta.id;
+		return Boolean(groupMeta.id);
 	} catch (e) {
 		return Promise.reject(e);
 	}

@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { query } from "express-validator";
-import { group } from "@/controllers";
-import requestValidator from "@/middlewares/request-validator";
-import sessionValidator from "@/middlewares/session-validator";
+import { group } from "../controllers/index.js";
+import requestValidator from "../middlewares/request-validator.js";
+import sessionValidator from "../middlewares/session-validator.js";
 
 const router = Router({ mergeParams: true });
 router.get(

@@ -1,33 +1,43 @@
-import type { BaileysEventEmitter } from "@whiskeysockets/baileys";
-import type { BaileysEventHandler } from "@/store/types";
-import { transformPrisma } from "@/store/utils";
-import { prisma } from "@/db";
-import { logger } from "@/shared";
-import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
+import { transformPrisma } from "../utils.js";
+import { prisma } from "../../db.js";
+import { logger } from "../../shared.js";
+import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library.js";
 
-export default function contactHandler(sessionId: string, event: BaileysEventEmitter) {
+/**
+ *
+ * @param {String} sessionId
+ * @param {import('@whiskeysockets/baileys').BaileysEventEmitter} event
+ * @returns
+ */
+export default function contactHandler(sessionId, event) {
 	let listening = false;
 
-	const set: BaileysEventHandler<"messaging-history.set"> = async ({ contacts }) => {
+	const set = async ({ contacts }) => {
 		try {
-			const contactIds = contacts.map((c) => c.id);
+			const contactIds = contacts.map((c) => {
+				return c.id;
+			});
 			const deletedOldContactIds = (
 				await prisma.contact.findMany({
 					select: { id: true },
 					where: { id: { notIn: contactIds }, sessionId },
 				})
-			).map((c) => c.id);
+			).map((c) => {
+				return c.id;
+			});
 
 			const upsertPromises = contacts
-				.map((c) => transformPrisma(c))
-				.map((data) =>
-					prisma.contact.upsert({
+				.map((c) => {
+					return transformPrisma(c);
+				})
+				.map((data) => {
+					return prisma.contact.upsert({
 						select: { pkId: true },
 						create: { ...data, sessionId },
 						update: data,
 						where: { sessionId_id: { id: data.id, sessionId } },
-					}),
-				);
+					});
+				});
 
 			await Promise.any([
 				...upsertPromises,
@@ -42,46 +52,51 @@ export default function contactHandler(sessionId: string, event: BaileysEventEmi
 		}
 	};
 
-	const upsert: BaileysEventHandler<"contacts.upsert"> = async (contacts) => {
+	const upsert = async (contacts) => {
 		try {
 			await Promise.any(
 				contacts
-					.map((c) => transformPrisma(c))
-					.map((data) =>
-						prisma.contact.upsert({
+					.map((c) => {
+						return transformPrisma(c);
+					})
+					.map((data) => {
+						return prisma.contact.upsert({
 							select: { pkId: true },
 							create: { ...data, sessionId },
 							update: data,
 							where: { sessionId_id: { id: data.id, sessionId } },
-						}),
-					),
+						});
+					}),
 			);
 		} catch (e) {
 			logger.error(e, "An error occured during contacts upsert");
 		}
 	};
 
-	const update: BaileysEventHandler<"contacts.update"> = async (updates) => {
+	const update = async (updates) => {
 		for (const update of updates) {
 			try {
 				await prisma.contact.update({
 					select: { pkId: true },
 					data: transformPrisma(update),
 					where: {
-						sessionId_id: { id: update.id!, sessionId },
+						sessionId_id: { id: update.id, sessionId },
 					},
 				});
 			} catch (e) {
 				if (e instanceof PrismaClientKnownRequestError && e.code === "P2025") {
 					return logger.info({ update }, "Got update for non existent contact");
 				}
+
 				logger.error(e, "An error occured during contact update");
 			}
 		}
 	};
 
 	const listen = () => {
-		if (listening) return;
+		if (listening) {
+			return;
+		}
 
 		event.on("messaging-history.set", set);
 		event.on("contacts.upsert", upsert);
@@ -90,7 +105,9 @@ export default function contactHandler(sessionId: string, event: BaileysEventEmi
 	};
 
 	const unlisten = () => {
-		if (!listening) return;
+		if (!listening) {
+			return;
+		}
 
 		event.off("messaging-history.set", set);
 		event.off("contacts.upsert", upsert);

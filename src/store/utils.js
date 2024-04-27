@@ -1,14 +1,13 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { toNumber } from "@whiskeysockets/baileys";
 import Long from "long";
-import type { MakeTransformedPrisma, MakeSerializedPrisma } from "./types";
 
-/** Transform object props value into Prisma-supported types */
-export function transformPrisma<T extends Record<string, any>>(
-	data: T,
-	removeNullable = true,
-): MakeTransformedPrisma<T> {
-	const obj = { ...data } as any;
+/**
+ * Transform object props value into Prisma-supported types
+ * @param {<T extends Record<string, any>>} data
+ * @param {Boolean} removeNullable
+ */
+export function transformPrisma(data, removeNullable = true) {
+	const obj = { ...data };
 
 	for (const [key, val] of Object.entries(obj)) {
 		if (val instanceof Uint8Array) {
@@ -23,12 +22,13 @@ export function transformPrisma<T extends Record<string, any>>(
 	return obj;
 }
 
-/** Transform prisma result into JSON serializable types */
-export function serializePrisma<T extends Record<string, any>>(
-	data: T,
-	removeNullable = true,
-): MakeSerializedPrisma<T> {
-	const obj = { ...data } as any;
+/**
+ * Transform prisma result into JSON serializable types
+ * @param {<T extends Record<string, any>>} data
+ * @param {Boolean} removeNullable
+ */
+export function serializePrisma(data, removeNullable = true) {
+	const obj = { ...data };
 
 	for (const [key, val] of Object.entries(obj)) {
 		if (val instanceof Buffer) {

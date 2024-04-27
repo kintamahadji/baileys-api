@@ -1,7 +1,9 @@
-import pino, { type Logger } from "pino";
+import pino from "pino";
 
-export const logger: Logger = pino({
-	timestamp: () => `,"time":"${new Date().toJSON()}"`,
+export const logger = pino({
+	timestamp() {
+		return `,"time":"${new Date().toJSON()}"`;
+	},
 	transport: {
 		targets: [
 			{
@@ -10,13 +12,13 @@ export const logger: Logger = pino({
 				options: {
 					colorize: true,
 				},
-			}
+			},
 		],
 	},
 	mixin(mergeObject, level) {
 		return {
 			...mergeObject,
-			level: level,
+			level,
 		};
 	},
 });
